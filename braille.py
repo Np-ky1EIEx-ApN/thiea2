@@ -9,9 +9,6 @@ import time
 from threading import Thread
 import importlib.util
 
-
-
-
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', help='C:\Virtualtest\bananas\bananas',
                     required=True)
@@ -32,15 +29,26 @@ args = parser.parse_args()
 # Parse user inputs
 model_path = args.model
 img_source = args.source
-min_thresh = args.thresh
+try:
+	min_thresh = float(args.thresh)
+except Excpetion: 
+	min_thresh = 0.5
 user_res = args.resolution
 record = args.record
+
+try:
+	if user_res:
+		width, height = map(int, str(user_res).lower()split('x'))
+	else:
+		width, height = 640, 480
+except Exception:
+	width, height = 640, 480
 
 # Check if model file exists and is valid
 if (not os.path.exists(model_path)):
     print('ERROR: Model path is invalid or model was not found. Make sure the model filename was entered correctly.')
     sys.exit(0)
-
+	
 class VideoStream:
     """Camera object that controls video streaming from a webcam or video source.
 
@@ -103,17 +111,73 @@ class VideoStream:
 	# Indicate that the camera and thread should be stopped
         self.stopped = True
 
-#speak function
+# UPDATE: Auto-scan camera function
+def scan_camera_indices(max_index=6, try_width=3840, try_height=2160):
+    found = []
+    for idx in range(max_index + 1):
+        for backend in ([cv2.CAP_DSHOW] if sys.platform.startswith('win') else [cv2.CAP_V4L2] if 'linux' in sys.platform else [None]):
+            try:
+                cap = cv2.VideoCapture(idx, backend) if backend else cv2.VideoCapture(idx)
+                if not cap.isOpened():
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
+                    continue
+                # attempt to request a larger mode to test capability
+                try:
+                    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, try_width)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, try_height)
+                except Exception:
+                    pass
+                time.sleep(0.05)
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    found.append(str(idx))
+                cap.release()
+                break
+            except Exception:
+                try:
+                    cap.release()
+                except Exception:
+                    pass
+    return found
+
+# UPDATE: Automatically scan for available cameras
+def build_sources(arg):
+    if arg is None:
+        return ['0']
+    arg = str(arg).strip()
+    if arg == 'auto':
+        print("[scan] auto-detecting camera indices...")
+        found = scan_camera_indices(MAX_INDEX)
+        if not found:
+            print("[scan] none found - falling back to '0'")
+            return ['0']
+        print(f"[scan] discovered indices: {found}")
+        return found
+    # comma separated list
+    parts = [p.strip() for p in arg.split(',') if p.strip() != '']
+    if len(parts) == 0:
+        return ['0']
+    return parts
+
+sources = build_sources(SOURCE_ARG)
+print("[info] using sources: ", sources)
+
+# Speak function
 def speak(text, engine):
     engine.say(text)
     engine.runAndWait()
 
-#initialization of the TTS engine 
+# Initialization of the TTS engine 
 def init_engine():
     engine = pyttsx3.init()
     engine.setProperty('rate', 100)
     engine.setProperty('volume',1.0)
     return engine
+	engine = init_engine()
 
 # Get path to current working directory
 CWD_PATH = os.getcwd()
@@ -313,3 +377,4 @@ while True:
 # Clean up
 cv2.destroyAllWindows()
 videostream.stop()
+
